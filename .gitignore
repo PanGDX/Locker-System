@@ -1,0 +1,6 @@
+/.venv
+.env
+*.json
+*.bin
+access_token.json
+__pycache__/

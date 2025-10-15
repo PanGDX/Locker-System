@@ -1,0 +1,6 @@
+PyQt6
+dotenv
+msgraph-sdk
+bleak
+azure-identity
+msal
