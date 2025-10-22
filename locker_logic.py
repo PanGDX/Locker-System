@@ -7,6 +7,14 @@ import string
 # The GUI and Bluetooth service will use this path.
 DATA_FILE = './data/details.json'
 
+
+"""
+We only need these three functions because locker_logic does not interact with the WIFI module. It solely deal with the 
+logic of properly maintaining json file in the local machine. As such it is only concerned with whether the locker is occupied
+or not, NOT with whether the mechanism is locked or not. 
+"""
+
+
 def get_all_locker_states() -> dict[str, bool]:
     """
     Reads the data file and returns a dictionary of locker states.
@@ -37,7 +45,7 @@ def get_all_locker_states() -> dict[str, bool]:
         # In case of an error, assume no lockers are occupied.
         return {}
 
-def assign_locker(locker_id: str, name: str, email: str) -> str | None:
+def assign_locker(locker_id: str, name: str, email: str, passcode: str) -> str | None:
     """
     Assigns a locker to a user, generates a passcode, and updates the data file.
 
@@ -52,7 +60,7 @@ def assign_locker(locker_id: str, name: str, email: str) -> str | None:
     """
     try:
         # Generate a random 6-digit passcode
-        passcode = ''.join(random.choices(string.digits, k=6))
+        # passcode = ''.join(random.choices(string.digits, k=6))
         
         # Read the current data
         try:
@@ -84,6 +92,8 @@ def assign_locker(locker_id: str, name: str, email: str) -> str | None:
 def release_locker(locker_id: str) -> bool:
     """
     Releases a locker, clearing its data from the file.
+    NOTE: THIS CLEARS DATA FROM FILE
+
 
     This is used both for unlocking a locker and for rolling back a
     failed submission process.
@@ -119,3 +129,5 @@ def release_locker(locker_id: str) -> bool:
     except (FileNotFoundError, json.JSONDecodeError, IOError) as e:
         print(f"Error releasing locker in '{DATA_FILE}': {e}")
         return False
+    
+

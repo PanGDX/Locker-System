@@ -4,3 +4,4 @@
 *.bin
 access_token.json
 __pycache__/
+WifiPassword.h

@@ -5,15 +5,16 @@ from PyQt6.QtWidgets import (
     QLineEdit, QLabel, QPushButton, QGroupBox, QFormLayout, QMessageBox
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtGui import QIntValidator
 
 # Import the new Bleak-based Bluetooth service and existing modules
-from wifi_service import ESP32BluetoothService
+from wifi_service import ESP32detailsManager,ESP32_IP
 import locker_logic
-import email_service
+from send_automated_email import send_automated_email
 
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
 
-# --- Custom Locker Widget (No changes needed) ---
+# --- Custom Locker Widget ---
 class LockerWidget(QPushButton):
     clicked_signal = pyqtSignal(str)
     def __init__(self, locker_id: str, is_occupied: bool = False, parent=None):
@@ -36,21 +37,19 @@ class LockerWidget(QPushButton):
         """)
 
 
-# --- Main Application Window (Modified for Bleak Service) ---
+# --- Main Application Window ---
 class LockerGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Locker System GUI (BLE)")
+        self.setWindowTitle("Locker System GUI (Wifi)")
         self.setGeometry(200, 200, 500, 450)
-        
+
         # State management
         self.locker_widgets = {}
         self.selected_locker_id = None
         self.is_name_valid = False
         self.is_email_valid = False
-
-        # --- MODIFIED: Use the Bleak Bluetooth Service ---
-        self.bt_service = ESP32BluetoothService()
+        self.is_job_number_valid = False
 
         # Layouts and Widgets
         self.main_layout = QVBoxLayout(self)
@@ -59,6 +58,7 @@ class LockerGUI(QWidget):
         self.create_action_buttons()
         self.setLayout(self.main_layout)
 
+        self.esp32_manager = ESP32detailsManager(esp32_ip=ESP32_IP)
         # Defer initialization until the main window is shown
         QTimer.singleShot(100, self.initialize_system)
 
@@ -70,33 +70,16 @@ class LockerGUI(QWidget):
         # This is a blocking call, so we inform the user
         QMessageBox.information(self, "Connecting...", "Attempting to connect to the ESP32. Please wait...")
         
-        is_connected = self.bt_service.connect()
-        if not is_connected:
-            QMessageBox.critical(self, "Connection Error", "Connect to bluetooth!")
+        self.esp32_manager.make_backup()
+        isSynced = self.esp32_manager.sync_from_esp32()
+        if(not isSynced):
+            QMessageBox.critical(self, "Connection Error", "Could not sync with ESP32!")
             self.close()
             return
-            
-        sync_ok = self.bt_service.sync_from_esp32(locker_logic.DATA_FILE)
-        if not sync_ok:
-            QMessageBox.critical(self, "Sync Error", "Could not sync 'details.json' from ESP32. The application will close.")
-            self.close()
-            return
-            
+
         self.load_initial_locker_states()
         self.setEnabled(True) # Enable the main GUI content
 
-    def closeEvent(self, event):
-        """
-        Overridden method to handle the window closing event.
-        Ensures the Bluetooth connection is terminated gracefully.
-        """
-        print("Window is closing, cleaning up resources.")
-        self.bt_service.disconnect()
-        event.accept()
-
-    # --- NO OTHER CHANGES ARE NEEDED BELOW THIS LINE ---
-    # The rest of the GUI logic remains the same because the service
-    # interface (methods) did not change.
 
     def create_user_input_group(self):
         user_groupbox = QGroupBox("User Information")
@@ -109,6 +92,13 @@ class LockerGUI(QWidget):
         self.email_input.setPlaceholderText("Enter a valid email address")
         self.email_input.textChanged.connect(self.validate_email)
         layout.addRow(QLabel("Email:"), self.email_input)
+
+        self.job_number_input = QLineEdit()
+        self.job_number_input.setPlaceholderText("Enter job number")
+        self.job_number_input.setValidator(QIntValidator())
+        self.job_number_input.textChanged.connect(self.validate_job_number)
+        layout.addRow(QLabel("Job Number:"), self.job_number_input)
+
         user_groupbox.setLayout(layout)
         self.main_layout.addWidget(user_groupbox)
 
@@ -166,6 +156,11 @@ class LockerGUI(QWidget):
         self.email_input.setStyleSheet("border: 2px solid #388E3C;" if self.is_email_valid else "border: 2px solid #D32F2F;")
         self.update_button_states()
 
+    def validate_job_number(self, text: str):
+        self.is_job_number_valid = bool(text.strip())
+        self.job_number_input.setStyleSheet("border: 2px solid #388E3C;" if self.is_job_number_valid else "border: 2px solid #D32F2F;")
+        self.update_button_states()
+
     def update_button_states(self):
         locker_is_selected = self.selected_locker_id is not None
         is_occupied = self.locker_widgets[self.selected_locker_id].is_occupied if locker_is_selected else False
@@ -175,31 +170,33 @@ class LockerGUI(QWidget):
         self.unlock_button.setEnabled(can_unlock)
 
     def run_unlock_process(self):
-        if not self.bt_service.is_connected():
-            QMessageBox.critical(self, "Connection Error", "Bluetooth disconnected. Please restart the application.")
-            return
         locker_id = self.selected_locker_id
         if not locker_id: return
+
         reply = QMessageBox.question(self, "Confirm Unlock", f"Unlock Locker <b>{locker_id}</b>?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Cancel: return
+
         if not locker_logic.release_locker(locker_id):
             QMessageBox.critical(self, "Error", "Failed to unlock the locker locally.")
             return
-        if not self.bt_service.sync_to_esp32(locker_logic.DATA_FILE):
-            QMessageBox.warning(self, "Sync Warning", "Locker unlocked locally, but failed to sync to ESP32.")
+
+        if not self.esp32_manager.update_esp32():
+            QMessageBox.warning(self, "Sync Warning", "Locker unlocked locally, but failed to sync to ESP32. Rolling back local changes.")
+            # Rollback: Re-assign the locker to the previous user
         else:
             QMessageBox.information(self, "Success", f"Locker {locker_id} has been unlocked and synced.")
-        self.locker_widgets[locker_id].is_occupied = False
-        self.reset_ui_state()
-        self.locker_widgets[locker_id].update_style()
+            self.locker_widgets[locker_id].is_occupied = False
+            self.reset_ui_state()
+            self.locker_widgets[locker_id].update_style()
+        
+
 
     def run_submission_process(self):
-        if not self.bt_service.is_connected():
-            QMessageBox.critical(self, "Connection Error", "Bluetooth disconnected. Please restart the application.")
-            return
         name = self.name_input.text().strip()
         email = self.email_input.text()
         locker_id = self.selected_locker_id
+        job_number = self.job_number_input.text().strip()
+
         reply = QMessageBox.question(self, "Confirm Submission", f"<b>Name:</b> {name}<br><b>Locker:</b> {locker_id}<br><br>Proceed?", QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Cancel: return
         self.submit_button.setEnabled(False)
@@ -209,16 +206,19 @@ class LockerGUI(QWidget):
             QMessageBox.critical(self, "Error", "Failed to update local database.")
             self.reset_ui_state()
             return
-        if not email_service.send_passcode_email(email, name, locker_id, new_passcode):
-            QMessageBox.warning(self, "Email Failed", "Locker assigned, but email failed. Rolling back.")
+        
+        # Note: need to add field for job number
+        if not self.esp32_manager.update_esp32():
+            QMessageBox.warning(self, "Sync Failed", "Locker assigned, ESP32 sync failed. Email not sent. Rolling back.")
             locker_logic.release_locker(locker_id)
             self.reset_ui_state()
             return
-        if not self.bt_service.sync_to_esp32(locker_logic.DATA_FILE):
-            QMessageBox.warning(self, "Sync Failed", "Locker assigned and email sent, but ESP32 sync failed. Rolling back.")
+        if not send_automated_email(self, email, job_number, locker_id, new_passcode):
+            QMessageBox.warning(self, "Email Failed", "Locker assigned, ESP32 sync success, but email failed. Rolling back.")
             locker_logic.release_locker(locker_id)
             self.reset_ui_state()
             return
+
         QMessageBox.information(self, "Success", f"Locker {locker_id} assigned to {name}. Passcode sent via email.")
         self.locker_widgets[locker_id].is_occupied = True
         self.reset_ui_state()
@@ -234,6 +234,11 @@ class LockerGUI(QWidget):
         self.submit_button.setText("Submit")
         self.update_button_states()
 
+    def closeEvent(self, event):
+        """ Overrides the default close event to delete the backup. """
+        self.esp32_manager.delete_backup()
+        event.accept()
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = LockerGUI()
@@ -241,3 +246,8 @@ if __name__ == '__main__':
     # Disable the window until the bluetooth connection and sync is complete
     window.setEnabled(False) 
     sys.exit(app.exec())
+
+
+
+    # closing and deleting 
+    # 

@@ -107,5 +107,5 @@ Your locker password is: {locker_password}
         print(result.get("error_description"))
         return False
     
-
-send_automated_email()
+if __name__ == '__main__':
+    send_automated_email()

@@ -1,15 +1,20 @@
 import requests
 import json
 import os
-import time
+import shutil
+
+DATA_FILE = './data/details.json'
+DATA_FILE_TMP = './data/details.json.tmp'
+ESP32_IP = "192.168.68.184"
 
 class ESP32detailsManager:
     """
     Manages synchronization of a JSON details file with an ESP32 server.
     """
-    def __init__(self, esp32_ip, local_filename="./data/details.json"):
+    def __init__(self, esp32_ip):
         self.esp32_ip = esp32_ip
-        self.local_file = local_filename
+        self.local_file = DATA_FILE
+        self.local_file_tmp = DATA_FILE_TMP
         self.url = f"http://{self.esp32_ip}/details"
         self.headers = {'Content-Type': 'application/json'}
         print(f"--- details Manager Initialized for ESP32 at {self.esp32_ip} ---")
@@ -20,78 +25,96 @@ class ESP32detailsManager:
         try:
             response = requests.get(self.url, timeout=5)
             response.raise_for_status()
+
+            self.make_backup()
+
             with open(self.local_file, 'w') as f:
                 json.dump(response.json(), f, indent=4)
             print(f"   Success! Synced and saved details to '{self.local_file}'")
+
+            self.delete_backup()
             return True
         except requests.exceptions.RequestException as e:
             print(f"   Error: Could not get details from ESP32. {e}")
             return False
 
-    def update_esp32(self):
-        """Reads the local details file and pushes it to the ESP32."""
-        if not os.path.exists(self.local_file):
-            print(f"   Error: Local file '{self.local_file}' not found.")
-            return False
-        print(f"-> Attempting to POST details to {self.url}...")
+    def make_backup(self):
+        print("-> Making backup")
+        # Ensure the data directory exists before trying to copy
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        if os.path.exists(DATA_FILE):
+            shutil.copy2(DATA_FILE, DATA_FILE_TMP)
+        return True
+    
+    def delete_backup(self):
+        print("-> Deleting backup")
+        if(os.path.exists(DATA_FILE_TMP)):
+            os.remove(DATA_FILE_TMP)
+        return True
+
+
+    def send_unlock_signal(self, locker_id: int):
+        """
+        Sends an unlock json signal {"signal": "unlock"} to the esp32.
+        Waits for json response. If it is "error", raises an error. 
+        If it is approved, returns True.
+        """
+        payload = {"signal": "unlock", "locker": locker_id}
+        print(f"-> Sending UNLOCK signal to {self.url}...")
         try:
-            with open(self.local_file, 'r') as f:
-                data = f.read()
-                print("To be sent (update_esp32)")
-                print(data)
-            response = requests.post(self.url, data=data, headers=self.headers, timeout=5)
-            response.raise_for_status()
-            print("   Success! ESP32 detailsuration updated.")
-            print(f"   Server response: {response.text}")
-            return True
+            # Use the json parameter to automatically serialize the dict and set headers
+            response = requests.post(self.url, json=payload, timeout=5)
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            
+            response_json = response.json()
+            print(f"   Server response: {response_json}")
+
+            # Check for application-level error in the response
+            if response_json["status"] == "approved":
+                print("   Unlock signal approved.")
+                return True
+            else:
+                # Raise an error if status is not 'approved'
+                raise Exception(f"Unlock failed. ESP32 response: {response_json}")
+
         except requests.exceptions.RequestException as e:
-            print(f"   Error: Could not push details to ESP32. {e}")
-            return False
-
-    def get_local_details(self):
-        """Reads and returns the local detailsuration as a Python dictionary."""
-        try:
-            with open(self.local_file, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"   Error: Could not read local details file: {e}")
-            return None
-
-    def save_local_details(self, details_dict):
-        """Saves a Python dictionary to the local details file."""
-        try:
-            with open(self.local_file, 'w') as f:
-                json.dump(details_dict, f, indent=4)
-            return True
+            print(f"   Error: Could not send unlock signal to ESP32. {e}")
+            raise  # Re-raise the exception after logging
+        except json.JSONDecodeError:
+            print(f"   Error: Could not decode JSON response from ESP32. Response text: {response.text}")
+            raise
         except Exception as e:
-            print(f"   Error: Could not save local details: {e}")
-            return False
-
-def run_sync_and_update_cycle(manager:ESP32detailsManager):
-    """
-    Performs one full cycle of syncing, modifying, and updating the details.
-    
-    Args:
-        manager (ESP32detailsManager): An instance of the details manager.
-    """
-    details = manager.get_local_details()
-    if not details:
-        print("--- Cycle Failed: Could not read local details. ---")
-        return
-        
-    manager.update_esp32()
+            print(f"   An unexpected error occurred: {e}")
+            raise
 
 
-def main():
-    """Main function to set up and run the test."""
-    ESP32_IP = "192.168.68.184"
-    
-    # Initialize the manager for the specific ESP32
-    details_manager = ESP32detailsManager(ESP32_IP)
-    
-    # Run the test cycle
-    run_sync_and_update_cycle(details_manager)
+    def send_lock_signal(self, locker_id: int, password: str = ""):
+        """
+        Sends a lock json signal {"signal": "lock", "password" : ""} to the esp32.
+        Blank "" is no password. Waits for json response. If it is "error", raises an error.
+        If it is approved, returns True.
+        """
+        payload = {"signal": "lock", "locker": locker_id, "password": password}
+        print(f"-> Sending LOCK signal: {payload}...")
+        try:
+            response = requests.post(self.url, json=payload, timeout=5)
+            response.raise_for_status()
+            
+            response_json = response.json()
+            print(f"   Server response: {response_json}")
 
+            if response_json["status"] == "approved":
+                print("   Lock signal approved.")
+                return True
+            else:
+                raise Exception(f"Lock failed. ESP32 response: {response_json}")
 
-if __name__ == "__main__":
-    main()
+        except requests.exceptions.RequestException as e:
+            print(f"   Error: Could not send lock signal to ESP32. {e}")
+            raise
+        except json.JSONDecodeError:
+            print(f"   Error: Could not decode JSON response from ESP32. Response text: {response.text}")
+            raise
+        except Exception as e:
+            print(f"   An unexpected error occurred: {e}")
+            raise
