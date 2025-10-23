@@ -15,15 +15,17 @@ class ESP32detailsManager:
         self.esp32_ip = esp32_ip
         self.local_file = DATA_FILE
         self.local_file_tmp = DATA_FILE_TMP
-        self.url = f"http://{self.esp32_ip}/details"
+        self.url = f"http://{self.esp32_ip}"
+        self.get_url = f"{self.url}/details"
+        self.post_url = f"{self.url}/actions"
         self.headers = {'Content-Type': 'application/json'}
         print(f"--- details Manager Initialized for ESP32 at {self.esp32_ip} ---")
 
     def sync_from_esp32(self):
         """Downloads the details from the ESP32 and replaces the local version."""
-        print(f"-> Attempting to GET details from {self.url}...")
+        print(f"-> Attempting to GET details from {self.get_url}...")
         try:
-            response = requests.get(self.url, timeout=5)
+            response = requests.get(self.get_url, timeout=5)
             response.raise_for_status()
 
             self.make_backup()
@@ -53,17 +55,17 @@ class ESP32detailsManager:
         return True
 
 
-    def send_unlock_signal(self, locker_id: int):
+    def send_unlock_signal(self, locker_id: str):
         """
         Sends an unlock json signal {"signal": "unlock"} to the esp32.
         Waits for json response. If it is "error", raises an error. 
         If it is approved, returns True.
         """
-        payload = {"signal": "unlock", "locker": locker_id}
-        print(f"-> Sending UNLOCK signal to {self.url}...")
+        payload = {"signal": "unlock", "locker": str(locker_id)}
+        print(f"-> Sending UNLOCK signal to {self.post_url}...")
         try:
             # Use the json parameter to automatically serialize the dict and set headers
-            response = requests.post(self.url, json=payload, timeout=5)
+            response = requests.post(self.post_url, json=payload, timeout=5)
             response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
             
             response_json = response.json()
@@ -88,16 +90,16 @@ class ESP32detailsManager:
             raise
 
 
-    def send_lock_signal(self, locker_id: int, password: str = ""):
+    def send_lock_signal(self, locker_id: str, password: str = ""):
         """
         Sends a lock json signal {"signal": "lock", "password" : ""} to the esp32.
         Blank "" is no password. Waits for json response. If it is "error", raises an error.
         If it is approved, returns True.
         """
-        payload = {"signal": "lock", "locker": locker_id, "password": password}
+        payload = {"signal": "lock", "locker": str(locker_id), "password": str(password)}
         print(f"-> Sending LOCK signal: {payload}...")
         try:
-            response = requests.post(self.url, json=payload, timeout=5)
+            response = requests.post(self.post_url, json=payload, timeout=5)
             response.raise_for_status()
             
             response_json = response.json()
@@ -118,3 +120,18 @@ class ESP32detailsManager:
         except Exception as e:
             print(f"   An unexpected error occurred: {e}")
             raise
+
+
+
+if __name__ == '__main__':
+    esp32_manager = ESP32detailsManager(ESP32_IP)
+    print("Most common error: You are not connected to EDIC_LAN wifi")
+    
+    esp32_manager.sync_from_esp32()
+    esp32_manager.send_lock_signal(
+        locker_id= "101",
+        password= "1231"
+    )
+    esp32_manager.send_unlock_signal(
+        locker_id= "101"
+    )

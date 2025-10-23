@@ -57,12 +57,12 @@ def send_automated_email( parent:QWidget | None,
 
     if not result:
         print("No suitable token in cache. Initiating interactive login.")
-        QMessageBox.information(parent, "Interactive Login", "o suitable token in cache. Initiating interactive login. Please ensure the wifi is on")
+        if(parent): QMessageBox.information(parent, "Interactive Login", "o suitable token in cache. Initiating interactive login. Please ensure the wifi is on")
         result = app.acquire_token_interactive(scopes=SCOPES)
 
     if "access_token" in result:
         print("Login successful!")
-        QMessageBox.information(parent, "Login successful", "Login successful")
+        if(parent): QMessageBox.information(parent, "Login successful", "Login successful")
         
 
         with open(CACHE_FILENAME, "w") as f:
@@ -96,7 +96,7 @@ Your locker password is: {locker_password}
             print("Email sent successfully!")
             return True
         else:
-            QMessageBox.information(parent, "Email Error!", response.json())
+            if(parent): QMessageBox.information(parent, "Email Error!", response.json())
             print(f"Error sending email: {response.status_code}")
             print(response.json())
             return False
@@ -108,4 +108,4 @@ Your locker password is: {locker_password}
         return False
     
 if __name__ == '__main__':
-    send_automated_email()
+    send_automated_email(None, "prtanprasertkul@gmail.com", 1234, 11, 98765)

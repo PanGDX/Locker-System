@@ -1,0 +1,234 @@
+#include <WiFi.h>
+#include <ArduinoJson.h>
+#include "LittleFS.h"
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <WifiPassword.h> // Assumes you have this header file with SSID and PASSWORD defined
+#include <LiquidCrystal_I2C.h>
+
+
+int lcdColumns = 16;
+int lcdRows = 2;
+LiquidCrystal_I2C lcd(0x3F, lcdColumns, lcdRows);
+
+// --- Network Configuration ---
+const char *ssid = SSID;
+const char *password = PASSWORD;
+
+AsyncWebServer server(80);
+
+IPAddress local_IP(192, 168, 68, 184);
+IPAddress gateway(192, 168, 68, 1);
+IPAddress subnet(255, 255, 252, 0);
+
+// --- File System Configuration ---
+const char* detailsFilePath = "/details.json";
+const char* tempDetailsFilePath = "/details.json.tmp";
+
+// --- WiFi Connection Logic ---
+void WiFiConnect(){
+  WiFi.mode(WIFI_STA);
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  if (!WiFi.config(local_IP, gateway, subnet)) {
+    Serial.println("STA Failed to configure");
+  }
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// --- WiFi Event Handlers (Unchanged) ---
+void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info){ Serial.println("Connected to AP successfully!"); }
+void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info){ Serial.println("WiFi connected"); Serial.print("IP address: "); Serial.println(WiFi.localIP()); }
+void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){ Serial.println("Disconnected. Reason: " + String(info.wifi_sta_disconnected.reason)); Serial.println("Trying to Reconnect"); WiFi.begin(ssid, password); }
+
+// --- File System Setup (Unchanged and Robust) ---
+bool LittleFSSetup(){
+  if(!LittleFS.begin(true)){ // true = format if mount failed
+    Serial.println("An Error has occurred while mounting LittleFS");
+    return false;
+  }
+  Serial.println("LittleFS mounted successfully.");
+
+  if(!LittleFS.exists(detailsFilePath)){
+    Serial.println("details.json not found, creating default.");
+    File file = LittleFS.open(detailsFilePath, "w");
+    if(!file){
+      Serial.println("Failed to create default file.");
+      return false;
+    }
+    file.print("{\"lockers\": {}}");
+    file.close();
+  } else {
+    File file = LittleFS.open(detailsFilePath, "r");
+    String fileContent = file.readString();
+    StaticJsonDocument<2048> doc; 
+    DeserializationError error = deserializeJson(doc, fileContent);
+    Serial.println("Current content of details.json:");
+    serializeJsonPretty(doc, Serial); 
+    Serial.println();
+  }
+  return true;
+}
+
+
+void setup() {
+  Serial.begin(115200);
+
+  if (!LittleFSSetup()) {
+    Serial.println("CRITICAL: LittleFS failed to initialize. Halting.");
+    while(1) { delay(1000); }
+  }
+
+  // initialize LCD
+  lcd.init();
+  // turn on LCD backlight
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Put Your Password:");
+
+  WiFiConnect();
+
+  WiFi.onEvent(WiFiStationConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  WiFi.onEvent(WiFiGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(WiFiStationDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  // --- API Endpoint Definitions ---
+
+  // GET: Retrieve the JSON file (Unchanged)
+  server.on("/details", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("GET request for /details");
+    request->send(LittleFS, detailsFilePath, "application/json");
+  });
+
+  // *** NEW Central Endpoint for handling all actions ***
+  server.on("/actions", HTTP_POST, 
+    [](AsyncWebServerRequest *request){}, NULL, 
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+      
+      // We only process the request once the body is fully received
+      if (index + len != total) {
+        return;
+      }
+
+      Serial.println("POST request to /actions");
+      StaticJsonDocument<256> doc;
+      DeserializationError error = deserializeJson(doc, (const char*)data, len);
+
+      if (error) {
+        Serial.printf("deserializeJson() failed: %s\n", error.c_str());
+        request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"Invalid JSON\"}");
+        return;
+      }
+
+      if (!doc.containsKey("signal")) {
+        request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"'signal' key missing\"}");
+        return;
+      }
+
+      const char* signal = doc["signal"];
+
+      // --- Process UNLOCK signal ---
+      if (strcmp(signal, "unlock") == 0) {
+        if (!doc.containsKey("locker")) {
+          request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"'locker' key missing for unlock signal\"}");
+          return;
+        }
+        const char* lockerId = doc["locker"];
+        Serial.printf("Received UNLOCK signal for locker %s\n", lockerId);
+        // --- TODO: Add your actual motor/solenoid unlock code here for the specified lockerId ---
+        request->send(200, "application/json", "{\"status\":\"approved\"}");
+
+      // --- Process LOCK signal ---
+      } else if (strcmp(signal, "lock") == 0) {
+        if (!doc.containsKey("locker") || !doc.containsKey("password")) {
+          request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"'locker' or 'password' key missing for lock signal\"}");
+          return;
+        }
+        const char* lockerId = doc["locker"];
+        const char* lockPassword = doc["password"];
+        Serial.printf("Received LOCK signal for locker %s with password '%s'\n", lockerId, lockPassword);
+        // --- TODO: Add your actual motor/solenoid lock code here ---
+        request->send(200, "application/json", "{\"status\":\"approved\"}");
+
+      // --- Handle Unknown signals ---
+      } else {
+        request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"Unknown signal\"}");
+      }
+    }
+  );
+
+  server.onNotFound([](AsyncWebServerRequest *request){
+    request->send(404, "application/json", "{\"error\":\"Not Found\"}");
+  });
+
+  server.begin();
+  Serial.println("HTTP server started.");
+
+  attachInterrupt(digitalPinToInterrupt(KEYPAD_PIN), handle_keypress_interrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(SUBMIT_PIN), handleSubmitInterrupt, RISING);
+}
+
+
+
+/*
+TO DO
+
+debouncing
+activate motor to unlock
+test that GUI and lockers.ino work together
+test the entire workflow with one motor
+make a json that maps each locker to the right motor pin
+
+*/
+
+
+
+
+volatile char keyPressedBuffer[10];
+volatile byte bufferIndex = 0;
+volatile bool submitPressed = false;
+volatile bool inIdleState = true;
+
+// // --- Interrupt Service Routine (ISR) ---
+// // This function is AUTOMATICALLY called when a keypad pin changes state.
+void IRAM_ATTR handle_keypress_interrupt() {
+  char key = keypad.getKey();
+  if (key && bufferIndex < 9) {
+    keyPressedBuffer[bufferIndex++] = key;
+  }
+}
+// TO DO
+// store the password
+// default displays
+// check against password in json
+// if wrong: display wrong, revert to default display
+// if right: unlock, delete, revert to default display
+void IRAM_ATTR handleSubmitInterrupt() {
+    submitPressed = true;
+}
+
+
+void check_password_and_unlock(){
+  // check password
+  // if valid, unlock
+  // if invalid, remain locked, show WRONG PWD in LED 
+}
+
+void loop() {
+  
+  if (bufferIndex > 0) {
+    char lastKey = keyPressedBuffer[bufferIndex - 1];
+    update_display_with_new_char(); 
+  }
+  if (submitPressed) {
+    submitPressed = false; // Reset the flag
+    check_password();      // This can be slow, but it won't miss keypresses
+  }
+}

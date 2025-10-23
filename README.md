@@ -56,4 +56,22 @@ what happens on startup? Some are occupied, some are not. All are locked.
 
 
 
-# REVAMP: use FreeRTOS, non blocking queues and commands! 
+
+
+EXAMPLE OF JSON. WILL FOLLOW THIS FORMAT.
+{
+    "302": {
+        "occupied": true,
+        "user": "asdasd",
+        "email": "www@gmail.com",
+        "job" : "123",
+        "passcode": "214651"
+    },
+    "102": {
+        "occupied": true,
+        "user": "asdas",
+        "email": "www@ww.com",
+        "job": "234",
+        "passcode": "819177"
+    }
+}
