@@ -49,7 +49,7 @@ class LockerGUI(QWidget):
         self.selected_locker_id = None
         self.is_name_valid = False
         self.is_email_valid = False
-        self.is_job_number_valid = False
+        self.is_jobid_valid = False
         self.is_password_valid = False # New state for password validation
 
         # Layouts and Widgets
@@ -96,11 +96,11 @@ class LockerGUI(QWidget):
         layout.addRow(QLabel("Email:"), self.email_input)
 
         # Job Number
-        self.job_number_input = QLineEdit()
-        self.job_number_input.setPlaceholderText("Enter job number")
-        self.job_number_input.setValidator(QIntValidator())
-        self.job_number_input.textChanged.connect(self.validate_job_number)
-        layout.addRow(QLabel("Job Number:"), self.job_number_input)
+        self.jobid_input = QLineEdit()
+        self.jobid_input.setPlaceholderText("Enter job number")
+        self.jobid_input.setValidator(QIntValidator())
+        self.jobid_input.textChanged.connect(self.validate_jobid)
+        layout.addRow(QLabel("Job Number:"), self.jobid_input)
 
         # Password
         self.password_input = QLineEdit()
@@ -197,9 +197,9 @@ class LockerGUI(QWidget):
         self.email_input.setStyleSheet("border: 2px solid #388E3C;" if self.is_email_valid else "border: 2px solid #D32F2F;")
         self.update_button_states()
 
-    def validate_job_number(self, text: str):
-        self.is_job_number_valid = bool(text.strip())
-        self.job_number_input.setStyleSheet("border: 2px solid #388E3C;" if self.is_job_number_valid else "border: 2px solid #D32F2F;")
+    def validate_jobid(self, text: str):
+        self.is_jobid_valid = bool(text.strip())
+        self.jobid_input.setStyleSheet("border: 2px solid #388E3C;" if self.is_jobid_valid else "border: 2px solid #D32F2F;")
         self.update_button_states()
 
     def validate_password(self, text: str):
@@ -217,7 +217,7 @@ class LockerGUI(QWidget):
             return
 
         is_occupied = self.locker_widgets[self.selected_locker_id].is_occupied
-        all_user_fields_valid = self.is_name_valid and self.is_email_valid and self.is_job_number_valid and self.is_password_valid
+        all_user_fields_valid = self.is_name_valid and self.is_email_valid and self.is_jobid_valid and self.is_password_valid
 
         # Enable occupy buttons only if a locker is selected, it's NOT occupied, and all fields are valid.
         self.make_occupy_email_button.setEnabled(locker_is_selected and not is_occupied and all_user_fields_valid)
@@ -236,7 +236,7 @@ class LockerGUI(QWidget):
         if reply == QMessageBox.StandardButton.Cancel: return
 
         try:
-            self.esp32_manager.send_unlock_signal(int(locker_id))
+            self.esp32_manager.send_unlock_signal(locker_id)
             QMessageBox.information(self, "Signal Sent", f"Unlock signal sent to locker {locker_id}.")
         except Exception as e:
             QMessageBox.critical(self, "Signal Failed", f"Failed to send unlock signal to ESP32: {e}")
@@ -247,7 +247,7 @@ class LockerGUI(QWidget):
         locker_id = self.selected_locker_id
         name = self.name_input.text().strip()
         email = self.email_input.text().strip()
-        job_number = self.job_number_input.text().strip()
+        jobid = self.jobid_input.text().strip()
         password = self.password_input.text().strip()
 
         action_text = "and send email" if send_email else "without sending email"
@@ -258,13 +258,13 @@ class LockerGUI(QWidget):
         self.make_occupy_no_email_button.setEnabled(False)
         
         # 1. Update local database
-        if not locker_logic.assign_locker(locker_id, name, email, password):
+        if not locker_logic.assign_locker(locker_id, jobid, password):
             QMessageBox.critical(self, "Error", "Failed to update local database.")
             self.reset_ui_state()
             return
         
         # 2. Sync to ESP32
-        if not self.esp32_manager.send_occupy_signal(locker_id,password):
+        if not self.esp32_manager.send_occupy_signal(locker_id,jobid,password):
             QMessageBox.warning(self, "Sync Failed", "Locker assigned locally, but ESP32 sync failed. Rolling back.")
             locker_logic.release_locker(locker_id) # Rollback local change
             self.reset_ui_state()
@@ -272,10 +272,9 @@ class LockerGUI(QWidget):
 
         # 3. Send email (optional)
         if send_email:
-            if not send_automated_email(self, email, job_number, locker_id, password):
-                QMessageBox.warning(self, "Email Failed", "Locker assigned, ESP32 sync success, but email failed. Rolling back.")
+            if not send_automated_email(self, email, jobid, locker_id, password):
+                QMessageBox.warning(self, "Email Failed", "Locker assigned, ESP32 sync success, but email failed. Rolling back (ESP32 is not rolled back).")
                 locker_logic.release_locker(locker_id) # Rollback local
-                self.esp32_manager.update_esp32() # Attempt to sync rollback
                 self.reset_ui_state()
                 return
 
@@ -291,7 +290,7 @@ class LockerGUI(QWidget):
         self.selected_locker_id = None
         self.name_input.clear()
         self.email_input.clear()
-        self.job_number_input.clear()
+        self.jobid_input.clear()
         self.password_input.clear()
         self.update_button_states()
 

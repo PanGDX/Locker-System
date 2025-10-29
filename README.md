@@ -60,32 +60,21 @@ what happens on startup? Some are occupied, some are not. All are locked.
 // GUI => make occupy signal => 'lock' => puts a password or overrides existing password  
 
 
-// one json file in esp32. Only contains: {"lockernum": {"password" : "", "jobid": ""}}
+// one json file in esp32. Only contains: 
 // one json files in local. Contains: {"lockernum": {"password" : "", "jobid": ""}} and 
 
 edits to make
-- Lockers.ino => change to new json file format
-- gui.py + wifi_service change to new json file format
-- map the buttons
 - map the motors
+- integrate the entire fucking thing
 
 
 EXAMPLE OF JSON. WILL FOLLOW THIS FORMAT.
 {
-    "302": {
-        "occupied": true,
-        "user": "asdasd",
-        "email": "www@gmail.com",
-        "job" : "123",
-        "passcode": "214651"
-    },
-    "102": {
-        "occupied": true,
-        "user": "asdas",
-        "email": "www@ww.com",
-        "job": "234",
-        "passcode": "819177"
-    }
+    "lockernum": 
+        {
+            "password" : "", 
+            jobid": ""
+        }
 }
 
 

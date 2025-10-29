@@ -45,7 +45,7 @@ def get_all_locker_states() -> dict[str, bool]:
         # In case of an error, assume no lockers are occupied.
         return {}
 
-def assign_locker(locker_id: str, name: str, email: str, passcode: str) -> str | None:
+def assign_locker(locker_id: str, job_number: str, passcode: str) -> str | None:
     """
     Assigns a locker to a user, generates a passcode, and updates the data file.
 
@@ -72,9 +72,7 @@ def assign_locker(locker_id: str, name: str, email: str, passcode: str) -> str |
             
         # Add or update the locker's information
         data[locker_id] = {
-            "occupied": True,
-            "user": name,
-            "email": email,
+            "jobid": job_number,
             "passcode": passcode
         }
         
@@ -82,7 +80,7 @@ def assign_locker(locker_id: str, name: str, email: str, passcode: str) -> str |
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
             
-        print(f"Locker {locker_id} assigned to {name}. Passcode: {passcode}")
+        print(f"Locker {locker_id} assigned to {job_number}. Passcode: {passcode}")
         return passcode
 
     except IOError as e:
