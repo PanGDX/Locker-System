@@ -8,8 +8,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 from PyQt6.QtGui import QIntValidator
-
-# Import the new Bleak-based Bluetooth service and existing modules
 from wifi_service import ESP32detailsManager, ESP32_IP
 import locker_logic
 from send_automated_email import send_automated_email
@@ -157,13 +155,9 @@ class LockerGUI(QWidget):
         button_layout.addWidget(self.make_occupy_no_email_button, 0, 1)
 
         # Unlock buttons
-        self.unlock_button = QPushButton("Unlock & Clear PWD")
-        self.unlock_button.clicked.connect(lambda: self.run_unlock_process(clear_record=True))
+        self.unlock_button = QPushButton("Unlock")
+        self.unlock_button.clicked.connect(lambda: self.run_unlock_process())
         button_layout.addWidget(self.unlock_button, 1, 0)
-
-        self.unlock_no_delete_button = QPushButton("Unlock (Signal Only)")
-        self.unlock_no_delete_button.clicked.connect(lambda: self.run_unlock_process(clear_record=False))
-        button_layout.addWidget(self.unlock_no_delete_button, 1, 1)
 
         actions_groupbox.setLayout(button_layout)
         
@@ -233,11 +227,11 @@ class LockerGUI(QWidget):
         self.unlock_button.setEnabled(locker_is_selected and is_occupied)
         self.unlock_no_delete_button.setEnabled(locker_is_selected and is_occupied)
 
-    def run_unlock_process(self, clear_record: bool):
+    def run_unlock_process(self):
         locker_id = self.selected_locker_id
         if not locker_id: return
         
-        action_text = "Unlock & Clear Data for" if clear_record else "Send ONLY Unlock Signal to"
+        action_text = "Unlock & Clear Data for"
         reply = QMessageBox.question(self, "Confirm Unlock", f"Are you sure you want to<br><b>{action_text}</b><br>Locker <b>{locker_id}</b>?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Cancel: return
 
@@ -248,20 +242,6 @@ class LockerGUI(QWidget):
             QMessageBox.critical(self, "Signal Failed", f"Failed to send unlock signal to ESP32: {e}")
             return
         
-        if clear_record:
-            if not locker_logic.release_locker(locker_id):
-                QMessageBox.critical(self, "Error", "Failed to clear the locker record locally.")
-                return
-
-            if not self.esp32_manager.update_esp32():
-                QMessageBox.warning(self, "Sync Warning", "Locker unlocked and local data cleared, but failed to sync to ESP32.")
-            else:
-                QMessageBox.information(self, "Success", f"Locker {locker_id} has been unlocked and record cleared.")
-            
-            # Update UI regardless of sync success as local state has changed
-            self.locker_widgets[locker_id].is_occupied = False
-            self.reset_ui_state()
-            self.locker_widgets[locker_id].update_style()
         
     def run_occupy_process(self, send_email: bool):
         locker_id = self.selected_locker_id
@@ -284,7 +264,7 @@ class LockerGUI(QWidget):
             return
         
         # 2. Sync to ESP32
-        if not self.esp32_manager.update_esp32():
+        if not self.esp32_manager.send_occupy_signal(locker_id,password):
             QMessageBox.warning(self, "Sync Failed", "Locker assigned locally, but ESP32 sync failed. Rolling back.")
             locker_logic.release_locker(locker_id) # Rollback local change
             self.reset_ui_state()

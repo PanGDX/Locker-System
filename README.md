@@ -56,6 +56,18 @@ what happens on startup? Some are occupied, some are not. All are locked.
 
 
 
+// GUI => unlock signal => unlock. Does not contain modify anything
+// GUI => make occupy signal => 'lock' => puts a password or overrides existing password  
+
+
+// one json file in esp32. Only contains: {"lockernum": {"password" : "", "jobid": ""}}
+// one json files in local. Contains: {"lockernum": {"password" : "", "jobid": ""}} and 
+
+edits to make
+- Lockers.ino => change to new json file format
+- gui.py + wifi_service change to new json file format
+- map the buttons
+- map the motors
 
 
 EXAMPLE OF JSON. WILL FOLLOW THIS FORMAT.
@@ -75,3 +87,13 @@ EXAMPLE OF JSON. WILL FOLLOW THIS FORMAT.
         "passcode": "819177"
     }
 }
+
+
+
+
+### How To Setup Entra
+- Sign up for Entra ID using personal email through the student offer
+- Verify student status
+- New app: Mobile and desktop applications
+- Take note of the client(application) ID and the tenant ID
+- Ensure: Allow public client flows

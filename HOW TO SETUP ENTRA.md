@@ -1,5 +1,0 @@
-- Sign up for Entra ID using personal email through the student offer
-- Verify student status
-- New app: Mobile and desktop applications
-- Take note of the client(application) ID and the tenant ID
-- Ensure: Allow public client flows

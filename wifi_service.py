@@ -90,13 +90,13 @@ class ESP32detailsManager:
             raise
 
 
-    def send_lock_signal(self, locker_id: str, password: str = ""):
+    def send_occupy_signal(self, locker_id: str, password: str = ""):
         """
         Sends a lock json signal {"signal": "lock", "password" : ""} to the esp32.
         Blank "" is no password. Waits for json response. If it is "error", raises an error.
         If it is approved, returns True.
         """
-        payload = {"signal": "lock", "locker": str(locker_id), "password": str(password)}
+        payload = {"signal": "occupy", "locker": str(locker_id), "password": str(password)}
         print(f"-> Sending LOCK signal: {payload}...")
         try:
             response = requests.post(self.post_url, json=payload, timeout=5)

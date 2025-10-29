@@ -6,6 +6,9 @@
 #include <WifiPassword.h> // Assumes you have this header file with SSID and PASSWORD defined
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
+#include "LockerManager.h"
+
+
 
 // Numpad Setup
 const int ROW_NUM = 4;
@@ -18,7 +21,7 @@ char keys[ROW_NUM][COLUMN_NUM] = {
   {'*', '0', '#'}
 };
 
-byte pin_rows[ROW_NUM] = {33, 25, 26, 27};
+byte pin_rows[ROW_NUM] = {27,26,25,33};
 byte pin_column[COLUMN_NUM] = {23, 19, 18};
 
 Keypad keypad = Keypad(makeKeymap(keys), pin_rows, pin_column, ROW_NUM, COLUMN_NUM);
@@ -185,17 +188,18 @@ void setup() {
       const char* lockerId = received_doc["locker"];
 
       if (strcmp(signal, "unlock") == 0) {
+        // unlock signal: only unlocks, no data modification
         Serial.printf("Received UNLOCK signal for locker %s\n", lockerId);
         unlock(lockerId);
-        remove_data_and_save(lockerId);
         request->send(200, "application/json", "{\"status\":\"approved\"}");
-      } else if (strcmp(signal, "lock") == 0) {
-        if (!received_doc.containsKey("data")) {
-          request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"'data' key missing for lock signal\"}");
+      } else if (strcmp(signal, "occupy") == 0) {
+        // lock signal: 
+        if (!received_doc.containsKey("password")) {
+          request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"'password' key missing for lock signal\"}");
           return;
         }
-        JsonObject lockerData = received_doc["data"].as<JsonObject>();
-        edit_data_and_save(lockerId, lockerData);
+        const char* password = received_doc["password"];
+        edit_data_and_save(lockerId, password);
         request->send(200, "application/json", "{\"status\":\"approved\"}");
       } else {
         request->send(400, "application/json", "{\"status\":\"error\", \"message\":\"Unknown signal\"}");
@@ -263,8 +267,8 @@ void check_password_and_unlock() {
   update_display();
 }
 
-void edit_data_and_save(const char* lockerId, JsonObject lockerData) {
-  data_json["lockers"][lockerId] = lockerData;
+void edit_data_and_save(const char* lockerId, JsonObject password) {
+  data_json[lockerId] = password;
   File file = LittleFS.open(detailsFilePath, "w");
   if (!file) {
     Serial.println("Failed to open details.json for writing.");
